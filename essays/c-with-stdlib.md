@@ -148,6 +148,8 @@ This is the Rule of Zero as a consequence of layering, not merely a style prefer
 
 It is also what makes "C with stdlib" a coherent style. The application layer can remain structurally simple: structs, enums, free functions, and direct control flow. C++-specific machinery is present, but application authors spend it rather than reimplement it.
 
+The `Widget` example needs no inheritance, virtual dispatch, operator overloading, or custom templates. Its application-level structure still looks much like C.
+
 If this model is accurate, difficult C++ should cluster at the seams between the tiers. Those are the places where someone must create a new resource-owning primitive or reconcile two primitives with different contracts.
 
 The `Widget` example already contains such a seam.
@@ -168,7 +170,7 @@ if (auto w = make_widget(path)) {
 
 This caller handles the empty result but may still receive an allocation exception. Discovering that possibility requires knowledge of `vector`, documentation for `make_widget`, or a look at the implementation.
 
-The mismatch comes from the primitives being composed. `ifstream` reports an ordinary open failure through stream state, while `vector` reports allocation failure with an exception. `make_widget` inherits both conventions.
+The mismatch comes from the primitives being composed. `ifstream` reports an ordinary open failure through stream state, while `vector` reports allocation failure with an exception, as other standard-library containers can when they allocate. `make_widget` inherits both conventions.
 
 That may be a reasonable API. Failure to open a file and failure to allocate memory do not necessarily need the same reporting mechanism. If the application does want one explicit channel, C++23's `std::expected` can provide it:
 
@@ -233,7 +235,7 @@ This is less magical than saying C++ solved destruction failure. It centralized 
 
 Standard stream teardown illustrates the tradeoff. A stream destructor does not give calling code a way to observe a close failure. If an application must know that buffered output reached its destination, it should call an explicit operation such as `close` or `flush` and inspect the stream state. The destructor remains the fallback that prevents a leak; it is not always the place to report operational success.
 
-The corrected comparison is therefore:
+The comparison is therefore:
 
 - C application code often performs cleanup itself and must choose how to combine failures at each call site.
 - C++ resource-owning types perform cleanup and choose the failure policy once for all of their users.
@@ -318,6 +320,12 @@ Projects such as [cppfront](https://github.com/hsutter/cppfront) explore a safer
 Tools such as [`clang-tidy`](https://clang.llvm.org/extra/clang-tidy/) enforce parts of the C++ Core Guidelines in existing code. None of these projects proves the two-tier model, but all reflect demand for safer defaults and more enforceable constraints.
 
 The standard can also improve Tier 2 indirectly. In-place aggregate construction and guaranteed copy elision let the example construct a non-movable `Widget` directly inside the returned wrapper. `std::expected` gives primitive authors and application authors another way to state failure contracts. Every improvement that makes resource-owning types safer or easier to compose benefits the application layer without requiring it to manage resources directly.
+
+This suggests a concrete test for language and library proposals: does the change make resource-owning primitives harder to write incorrectly, or easier for application code to compose?
+
+For Tier-1 authors, "harder to write incorrectly" means fewer chances to make ownership copyable by accident, implement a broken move operation, leak a resource when construction fails, or violate the exception guarantee of cleanup. A useful language or library feature moves one of those obligations into a reusable mechanism instead of relying on every wrapper author to implement it correctly.
+
+For Tier-2 authors, "easier to compose" means that those primitives fit into aggregates, return types, and error channels without hand-written adapters or special member functions. The `Widget` example benefits from both sides: the library types already own their resources, and the language lets the application combine them without making `Widget` movable.
 
 There is a serious counterargument. C++ has an enormous existing surface and a large compatibility burden. A new enforcement mechanism could split the language further or reject established code with valid reasons for custom special members. It may be better for external tools and experimental languages to test these ideas before ISO C++ adopts them.
 
