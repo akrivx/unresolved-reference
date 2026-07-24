@@ -217,30 +217,25 @@ Neither mechanism wins everywhere. The point is that a Tier-2 boundary such as `
 
 ## What Happens When Teardown Fails?
 
-The C version exposed another seam: construction failed, cleanup also failed, and one `WidgetStatus` could not report both.
+The C version exposed a harder problem: construction failed, cleanup also failed, and one `WidgetStatus` could not report both.
 
-C++ does not make this combination impossible. Suppose an aggregate has already constructed a file-owning member when the construction of a later member throws. The file member is destroyed. The complete aggregate's destructor does not run because the aggregate never finished construction, but teardown of its completed members still happens.
+RAII does not solve that problem by merging failures. Its more useful contribution is to separate error reporting, observable finalization, and fallback cleanup.
 
-The current `Widget` example does not take that exact path. Its buffer is allocated as a local before in-place construction begins. If that allocation fails, the local file is destroyed instead. In both cases, the relevant resource-owning type controls cleanup.
+A Tier-1 file wrapper can expose an explicit `close`, `flush`, or `commit` operation that returns an error while the caller can still respond. Its destructor provides automatic fallback cleanup if that operation is never called. Standard streams illustrate the split: a stream destructor cannot report a close failure, so code that must observe the result calls `close` or `flush` explicitly and inspects the stream state.
 
-What C++ changes is where the cleanup policy lives.
+Tier-2 code can therefore remain error-value based without adding destructor behavior of its own. It performs fallible finalization in ordinary control flow, handles the returned error, and lets member destruction cover early returns and other exits. Application authors do not have to decide what their own destructors should do during stack unwinding or how a destructor error should compete with an error already in flight.
 
-A destructor with no explicit exception specification gets one based on the destructors of its bases and members. Resource-owning library types are normally designed with non-throwing destructors. If an exception tries to escape a non-throwing destructor, the program calls `std::terminate`.
+Automatic fallback composes through the language. If construction fails after some members have been completed, C++ destroys those members in reverse order. The complete object's destructor does not run because the object never finished construction. In the concrete `Widget` example, buffer allocation happens earlier, so failure destroys the local file instead.
 
-A destructor can explicitly allow exceptions with `noexcept(false)`. Such an exception can propagate during ordinary execution. If it escapes while another exception is already unwinding the stack, the program still calls `std::terminate`. C++ has no general mechanism for propagating two active exceptions at once.
+Destruction has a deliberately narrow error channel. A destructor cannot return a status. Its implicit exception specification depends on its bases and members, and resource-owning types are normally designed with non-throwing destructors. If an exception escapes one, the program calls `std::terminate`.
 
-Suppose construction of a later member fails after a file member has been built, and closing that file also fails. The file wrapper has already chosen what happens next. It may contain or discard the close failure, allowing the original exception to continue. If its destructor throws during unwinding, the program terminates. The factory does not invent a merge policy because cleanup does not return to the factory through a second status value.
+A destructor marked `noexcept(false)` can propagate an exception during an ordinary scope exit, but not while another exception is already unwinding the stack. In that case, the program also terminates. If closing a file fails during unwinding, its Tier-1 wrapper must contain, record, or otherwise resolve that failure if the original exception is to continue. The language centralizes these exceptional lifecycle rules instead of making each Tier-2 type invent them.
 
-This is less magical than saying C++ solved destruction failure. It centralized the decision. Each Tier-1 type defines its cleanup behavior once, and every Tier-2 user inherits that policy.
+The `expected` version of `make_widget` applies the same separation to construction. Its outward contract uses error values, while the factory translates `vector`'s allocation exception once at the boundary. If its Tier-1 dependencies already reported these failures as values, the Tier-2 code would need no exception handling at all.
 
-Standard stream teardown illustrates the tradeoff. A stream destructor does not give calling code a way to observe a close failure. If an application must know that buffered output reached its destination, it should call an explicit operation such as `close` or `flush` and inspect the stream state. The destructor remains the fallback that prevents a leak; it is not always the place to report operational success.
+C can provide the same explicit finalization functions, fallback functions, and error values. What it lacks is automatic fallback tied to object lifetime. Application code must invoke cleanup on every path and either establish a consistent policy or adapt to the policies of each third-party API.
 
-The comparison is therefore:
-
-- C application code often performs cleanup itself and must choose how to combine failures at each call site.
-- C++ resource-owning types perform cleanup and choose the failure policy once for all of their users.
-
-RAII removes repeated bookkeeping. It does not make every cleanup failure recoverable, observable, or harmless.
+That is the Tier-2 benefit of RAII here. It permits fine-grained, observable finalization and automatic cleanup at the same time, without requiring application code to implement destructor behavior or manage the exceptional cases of destruction.
 
 ## When There Is No Primitive to Use
 
