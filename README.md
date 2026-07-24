@@ -9,3 +9,7 @@ Written as questions worth pressing rather than conclusions worth defending. Mos
 - [C with stdlib: A Two-Tier Model of C++](essays/c-with-stdlib.md): why C++ code that looks like C is correct application-layer style, not unfinished C++, argued through one small RAII example evolved twice. Ends with a question for engineers and a question for language designers.
 
 More to come.
+
+---
+
+> **License**: The essays are licensed under CC BY 4.0. Code snippets are dedicated to the public domain under CC0 1.0 unless otherwise noted. See [LICENSE](LICENSE) for details.
